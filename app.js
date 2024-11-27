@@ -101,3 +101,34 @@ const userPosition = { latitude: 55.7558, longitude: 37.6173 }; // Пример:
 
 // Загрузка зданий и их добавление на сцену
 loadBuildings(userPosition);
+
+// Обработка изменений ориентации устройства (гироскоп/акселерометр)
+let deviceOrientation = { alpha: 0, beta: 0, gamma: 0 };
+let lastTimestamp = 0;
+
+function onDeviceOrientation(event) {
+    if (event.alpha !== null && event.beta !== null && event.gamma !== null) {
+        deviceOrientation = {
+            alpha: event.alpha,
+            beta: event.beta,
+            gamma: event.gamma
+        };
+
+        // Обновляем ориентацию камеры
+        updateCameraOrientation();
+    }
+}
+
+// Обновление ориентации камеры на основе данных гироскопа
+function updateCameraOrientation() {
+    const { alpha, beta, gamma } = deviceOrientation;
+
+    // Применяем вращение на камеру в THREE.js
+    camera.rotation.set(
+        THREE.MathUtils.degToRad(beta),   // Гироскоп X
+        THREE.MathUtils.degToRad(alpha),  // Гироскоп Y
+        THREE.MathUtils.degToRad(gamma)   // Гироскоп Z
+    );
+}
+
+window.addEventListener('deviceorientation', onDeviceOrientation);
