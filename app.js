@@ -37,22 +37,22 @@ window.addEventListener("deviceorientation", (event) => {
 
 // Запрос данных о зданиях
 async function fetchBuildings() {
-  const bbox = [
-    currentCoords.lon - 0.01,
-    currentCoords.lat - 0.01,
-    currentCoords.lon + 0.01,
-    currentCoords.lat + 0.01
-  ].join(",");
-  
-  try {
-    const response = await fetch(`https://www.openstreetmap.org/api/0.6/map?bbox=${bbox}`);
-    const osmData = await response.text();
-    const geojson = osmtogeojson(osmData);
-    addBuildingsToScene(geojson.features);
-  } catch (err) {
-    console.error("Ошибка загрузки данных OSM:", err);
-  }
-}
+    const bbox = [
+      currentCoords.lon - 0.01,
+      currentCoords.lat - 0.01,
+      currentCoords.lon + 0.01,
+      currentCoords.lat + 0.01
+    ].join(",");
+    
+    try {
+      const response = await fetch(`https://www.openstreetmap.org/api/0.6/map?bbox=${bbox}`);
+      const osmData = await response.text(); // Загружаем данные в формате XML
+      const geojson = osmtogeojson(new DOMParser().parseFromString(osmData, "text/xml"));
+      addBuildingsToScene(geojson.features); // Передаём данные для отрисовки зданий
+    } catch (err) {
+      console.error("Ошибка загрузки данных OSM:", err);
+    }
+  }  
 
 // Добавление зданий на сцену
 function addBuildingsToScene(features) {
