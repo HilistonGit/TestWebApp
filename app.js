@@ -1,63 +1,49 @@
-const map = DG.map('map', {
-    center: [55.751244, 37.618423], // Москва
-    zoom: 18,
-    tilt: 45, // Наклон карты (начальный)
-    rotation: 0, // Поворот карты
-});
-
-// Включение камеры устройства
-async function startCamera() {
-    const video = document.getElementById('video');
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+// Инициализация камеры
+const video = document.getElementById('camera-feed');
+navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then((stream) => {
         video.srcObject = stream;
-    } catch (error) {
-        console.error('Ошибка доступа к камере:', error);
-    }
+        video.play();
+    })
+    .catch(console.error);
+
+// Инициализация Three.js
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Добавляем "3D здания" (замените на данные из 2GIS API)
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+const building = new THREE.Mesh(geometry, material);
+scene.add(building);
+
+// Позиция здания (пример)
+building.position.set(0, 0, -5); // 5 метров перед камерой
+
+// GPS и гироскоп
+if (navigator.geolocation) {
+    navigator.geolocation.watchPosition((position) => {
+        const { latitude, longitude } = position.coords;
+        console.log(`GPS координаты: ${latitude}, ${longitude}`);
+        // Используйте координаты для смещения объектов на карте
+    });
 }
 
-// Обновление положения карты на основе GPS
-function updateLocation(position) {
-    const { latitude, longitude } = position.coords;
-    map.setView([latitude, longitude], map.getZoom());
+if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientation', (event) => {
+        const { alpha, beta, gamma } = event;
+        camera.rotation.y = THREE.MathUtils.degToRad(alpha || 0);
+        camera.rotation.x = THREE.MathUtils.degToRad(beta || 0);
+        camera.rotation.z = THREE.MathUtils.degToRad(gamma || 0);
+    });
 }
 
-// Инициализация GPS
-function initGPS() {
-    if ('geolocation' in navigator) {
-        navigator.geolocation.watchPosition(updateLocation, (err) => {
-            console.error('Ошибка GPS:', err);
-        });
-    } else {
-        console.error('GPS недоступен');
-    }
+// Рендеринг сцены
+function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
 }
-
-// Обновление виртуальной камеры карты
-function updateVirtualCamera(alpha, beta, gamma) {
-    const tilt = Math.max(0, Math.min(90, beta)); // Угол наклона (0-90 градусов)
-    const bearing = alpha; // Азимут
-
-    map.setView(map.getCenter(), map.getZoom(), { tilt: tilt, rotation: bearing });
-}
-
-// Обработка данных гироскопа
-function initSensors() {
-    if (window.DeviceOrientationEvent) {
-        window.addEventListener('deviceorientation', (event) => {
-            const { alpha, beta, gamma } = event;
-            updateVirtualCamera(alpha, beta, gamma);
-        });
-    } else {
-        console.error('Гироскоп недоступен');
-    }
-}
-
-// Запуск приложения
-async function startApp() {
-    await startCamera();
-    initGPS();
-    initSensors();
-}
-
-startApp();
+animate();
