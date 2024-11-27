@@ -111,6 +111,8 @@ document.body.appendChild(renderer.domElement);
 
 camera.position.z = 100;
 
+renderer.setPixelRatio(0.5); // Уменьшаем разрешение рендера для повышения производительности
+
 // Анимация
 function animate() {
   requestAnimationFrame(animate);
