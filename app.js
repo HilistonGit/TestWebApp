@@ -1,108 +1,101 @@
-// Инициализация камеры
-const video = document.getElementById("camera");
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-  .then((stream) => {
-    video.srcObject = stream;
-  })
-  .catch((err) => {
-    console.error("Ошибка доступа к камере:", err);
-  });
+let currentCoords = { lat: 45.039, lon: 39.129 }; // Пример начальных координат (Краснодар)
 
-// Инициализация Three.js
-const canvas = document.getElementById("arCanvas");
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-renderer.setSize(window.innerWidth, window.innerHeight);
+// Функция для обновления координат с GPS
+function updateCoords() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition((position) => {
+      currentCoords.lat = position.coords.latitude;
+      currentCoords.lon = position.coords.longitude;
+    });
+  }
+}
 
-// Текущее положение и ориентация устройства
-let currentCoords = { lat: 0, lon: 0 };
-
-// Получение координат GPS
-navigator.geolocation.watchPosition((pos) => {
-  currentCoords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-  fetchBuildings();
-}, (err) => {
-  console.error("Ошибка получения координат:", err);
-});
-
-// Обновление ориентации устройства
-window.addEventListener("deviceorientation", (event) => {
-  camera.rotation.set(
-    THREE.MathUtils.degToRad(event.beta - 90),
-    THREE.MathUtils.degToRad(event.alpha),
-    THREE.MathUtils.degToRad(event.gamma)
-  );
-});
-
-// Запрос данных о зданиях
+// Функция для загрузки данных зданий через Overpass API
 async function fetchBuildings() {
-  const bbox = [
-    currentCoords.lon - 0.01,
-    currentCoords.lat - 0.01,
-    currentCoords.lon + 0.01,
-    currentCoords.lat + 0.01
-  ].join(",");
-  
+  const overpassApi = `https://overpass-api.de/api/interpreter`;
+  const query = `
+    [out:xml][timeout:25];
+    (
+      way["building"](${currentCoords.lat - 0.01},${currentCoords.lon - 0.01},${currentCoords.lat + 0.01},${currentCoords.lon + 0.01});
+      relation["building"](${currentCoords.lat - 0.01},${currentCoords.lon - 0.01},${currentCoords.lat + 0.01},${currentCoords.lon + 0.01});
+    );
+    out body;
+    >;
+    out skel qt;
+  `;
+
   try {
-    const response = await fetch(`https://www.openstreetmap.org/api/0.6/map?bbox=${bbox}`);
+    const response = await fetch(overpassApi, {
+      method: "POST",
+      body: query,
+    });
+    if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
     const osmData = await response.text();
-    const geojson = osmtogeojson(osmData);
+
+    // Преобразование данных OSM в формат GeoJSON
+    const geojson = osmtogeojson(new DOMParser().parseFromString(osmData, "text/xml"));
+
+    // Добавление зданий на сцену
     addBuildingsToScene(geojson.features);
   } catch (err) {
     console.error("Ошибка загрузки данных OSM:", err);
   }
 }
 
-// Добавление зданий на сцену
-function addBuildingsToScene(features) {
-  features.forEach((feature) => {
-    if (feature.geometry.type === "Polygon") {
-      const shape = new THREE.Shape(
-        feature.geometry.coordinates[0].map(([lon, lat]) => {
-          const { x, y } = project(lat, lon);
-          return new THREE.Vector2(x, y);
-        })
-      );
-      
-      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 50, bevelEnabled: false });
-      const material = new THREE.MeshBasicMaterial({
-        color: 0x00ff00,
-        transparent: true,
-        opacity: 0.5
+// Функция для добавления зданий на сцену
+function addBuildingsToScene(buildings) {
+  buildings.forEach((building) => {
+    if (building.geometry && building.geometry.type === "Polygon") {
+      const coords = building.geometry.coordinates[0];
+      const shape = new THREE.Shape();
+      coords.forEach(([lon, lat], i) => {
+        const { x, y } = convertCoordsToScene(lon, lat);
+        if (i === 0) {
+          shape.moveTo(x, y);
+        } else {
+          shape.lineTo(x, y);
+        }
       });
 
-      // Прозрачный градиент
-      material.onBeforeCompile = (shader) => {
-        shader.uniforms.time = { value: 0 };
-        shader.fragmentShader = shader.fragmentShader.replace(
-          "#include <dithering_fragment>",
-          `
-          #include <dithering_fragment>
-          gl_FragColor.a = mix(0.5, 0.0, gl_FragCoord.y / 500.0); // Градиент прозрачности
-          `
-        );
-      };
+      // Создание 3D-объекта для здания
+      const extrudeSettings = { depth: 50, bevelEnabled: false };
+      const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x0000ff,
+        transparent: true,
+        opacity: 0.5,
+      });
 
-      const building = new THREE.Mesh(geometry, material);
-      building.position.z = -25; // Позиционирование на сцене
-      scene.add(building);
+      const buildingMesh = new THREE.Mesh(geometry, material);
+      scene.add(buildingMesh);
     }
   });
 }
 
-// Проекция координат в плоскость
-function project(lat, lon) {
-  const scale = 100000; // Коэффициент масштабирования
-  return {
-    x: (lon - currentCoords.lon) * scale,
-    y: (lat - currentCoords.lat) * scale
-  };
+// Функция для преобразования координат в сцену Three.js
+function convertCoordsToScene(lon, lat) {
+  // Пример простого преобразования (не учитывает масштаб)
+  const x = (lon - currentCoords.lon) * 10000;
+  const y = (lat - currentCoords.lat) * 10000;
+  return { x, y };
 }
 
-// Анимация сцены
+// Инициализация сцены Three.js
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+camera.position.z = 100;
+
+// Анимация
 function animate() {
   requestAnimationFrame(animate);
   renderer.render(scene, camera);
 }
 animate();
+
+// Инициализация
+updateCoords();
+fetchBuildings();
