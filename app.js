@@ -1,20 +1,24 @@
-navigator.mediaDevices.getUserMedia({ video: true })
+// Инициализация камеры
+const video = document.createElement("video");
+video.id = "camera";
+video.style.position = "absolute";
+video.style.top = "0";
+video.style.left = "0";
+video.style.width = "100%";
+video.style.height = "100%";
+video.style.zIndex = "-1"; // Видео располагается за слоем Three.js
+document.body.appendChild(video);
+
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
   .then((stream) => {
-    const video = document.createElement("video");
     video.srcObject = stream;
     video.play();
-    document.body.appendChild(video);
-    video.style.position = "absolute";
-    video.style.top = "0";
-    video.style.left = "0";
-    video.style.zIndex = "-1"; // Помещаем видео под Three.js сцену
-    video.style.width = "100%";
-    video.style.height = "100%";
   })
   .catch((err) => {
     console.error("Ошибка доступа к камере:", err);
   });
 
+// Остальной код для работы с Three.js и OSM
 let currentCoords = { lat: 45.039, lon: 39.129 }; // Пример начальных координат (Краснодар)
 
 // Функция для обновления координат с GPS
@@ -102,11 +106,10 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
 document.body.appendChild(renderer.domElement);
 
 camera.position.z = 100;
-
-renderer.setPixelRatio(0.5); // Уменьшаем разрешение рендера для повышения производительности
 
 // Анимация
 function animate() {
