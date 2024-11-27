@@ -1,105 +1,108 @@
-// Получаем доступ к элементам
-const video = document.getElementById('camera-feed');
+// Инициализация камеры
+const video = document.getElementById("camera");
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+  .then((stream) => {
+    video.srcObject = stream;
+  })
+  .catch((err) => {
+    console.error("Ошибка доступа к камере:", err);
+  });
+
+// Инициализация Three.js
+const canvas = document.getElementById("arCanvas");
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
 
-// Настройка видео с камеры
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-    .then((stream) => {
-        video.srcObject = stream;
-        video.play();
-    })
-    .catch((err) => console.log("Ошибка при получении видео: ", err));
+// Текущее положение и ориентация устройства
+let currentCoords = { lat: 0, lon: 0 };
 
-// Инициализация переменных для GPS координат
-let currentLatitude = 0;
-let currentLongitude = 0;
+// Получение координат GPS
+navigator.geolocation.watchPosition((pos) => {
+  currentCoords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+  fetchBuildings();
+}, (err) => {
+  console.error("Ошибка получения координат:", err);
+});
 
-// Функция для получения текущих GPS-координат устройства
-function getGPSCoordinates() {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition((position) => {
-            currentLatitude = position.coords.latitude;
-            currentLongitude = position.coords.longitude;
-            console.log(`Текущие GPS координаты: Широта: ${currentLatitude}, Долгота: ${currentLongitude}`);
-            // Обновление позиции камеры
-            camera.position.set(currentLongitude, 0, currentLatitude); // Преобразование GPS в местные координаты
-        });
-    } else {
-        console.error("GPS не поддерживается на этом устройстве.");
-    }
+// Обновление ориентации устройства
+window.addEventListener("deviceorientation", (event) => {
+  camera.rotation.set(
+    THREE.MathUtils.degToRad(event.beta - 90),
+    THREE.MathUtils.degToRad(event.alpha),
+    THREE.MathUtils.degToRad(event.gamma)
+  );
+});
+
+// Запрос данных о зданиях
+async function fetchBuildings() {
+  const bbox = [
+    currentCoords.lon - 0.01,
+    currentCoords.lat - 0.01,
+    currentCoords.lon + 0.01,
+    currentCoords.lat + 0.01
+  ].join(",");
+  
+  try {
+    const response = await fetch(`https://www.openstreetmap.org/api/0.6/map?bbox=${bbox}`);
+    const osmData = await response.text();
+    const geojson = osmtogeojson(osmData);
+    addBuildingsToScene(geojson.features);
+  } catch (err) {
+    console.error("Ошибка загрузки данных OSM:", err);
+  }
 }
 
-// Функция для загрузки данных о зданиях из OpenStreetMap через Overpass API
-function loadBuildingData() {
-    // Используем координаты устройства для получения данных о зданиях вокруг
-    const overpassUrl = 'https://overpass-api.de/api/interpreter';
-    const query = `
-        [out:json];
-        (
-            way["building"](around:500, ${currentLatitude}, ${currentLongitude});
-            node["building"](around:500, ${currentLatitude}, ${currentLongitude});
-        );
-        out body;
-    `;
-    fetch(`${overpassUrl}?data=${encodeURIComponent(query)}`)
-        .then(response => response.json())
-        .then(data => {
-            console.log('Данные зданий:', data);
-            data.elements.forEach(element => {
-                if (element.type === "way" && element.tags && element.tags.building) {
-                    const coordinates = element.nodes.map(nodeId => {
-                        const node = data.elements.find(e => e.id === nodeId);
-                        return [node.lon, node.lat];
-                    });
-                    createBuildingFromGeoData(coordinates);
-                }
-            });
+// Добавление зданий на сцену
+function addBuildingsToScene(features) {
+  features.forEach((feature) => {
+    if (feature.geometry.type === "Polygon") {
+      const shape = new THREE.Shape(
+        feature.geometry.coordinates[0].map(([lon, lat]) => {
+          const { x, y } = project(lat, lon);
+          return new THREE.Vector2(x, y);
         })
-        .catch(error => console.error('Ошибка при загрузке данных зданий:', error));
-}
+      );
+      
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 50, bevelEnabled: false });
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x00ff00,
+        transparent: true,
+        opacity: 0.5
+      });
 
-// Функция для создания 3D здания на основе координат
-function createBuildingFromGeoData(coords) {
-    const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
-    const height = 10; // Примерная высота здания (можно сделать динамической, если есть соответствующие данные)
+      // Прозрачный градиент
+      material.onBeforeCompile = (shader) => {
+        shader.uniforms.time = { value: 0 };
+        shader.fragmentShader = shader.fragmentShader.replace(
+          "#include <dithering_fragment>",
+          `
+          #include <dithering_fragment>
+          gl_FragColor.a = mix(0.5, 0.0, gl_FragCoord.y / 500.0); // Градиент прозрачности
+          `
+        );
+      };
 
-    coords.forEach((coord) => {
-        const x = coord[0]; // Долгота
-        const z = coord[1]; // Широта
-        const geometry = new THREE.BoxGeometry(1, height, 1); // Простой куб в 3D
-        const building = new THREE.Mesh(geometry, material);
-        building.position.set(x, height / 2, z); // Позиционирование здания на сцене
-        scene.add(building);
-    });
-}
-
-// Функция для обновления данных устройства (GPS и акселерометр)
-function updateDevicePosition() {
-    getGPSCoordinates(); // Получаем GPS-координаты
-
-    if (window.DeviceOrientationEvent) {
-        window.addEventListener("deviceorientation", (event) => {
-            const alpha = event.alpha; // Угол вокруг оси Z (гироскоп)
-            const beta = event.beta;   // Угол вокруг оси X (гироскоп)
-            const gamma = event.gamma; // Угол вокруг оси Y (гироскоп)
-
-            console.log(`Гироскоп - alpha: ${alpha}, beta: ${beta}, gamma: ${gamma}`);
-            // Применение данных гироскопа для вращения сцены
-            camera.rotation.set(beta * (Math.PI / 180), gamma * (Math.PI / 180), alpha * (Math.PI / 180));
-        });
+      const building = new THREE.Mesh(geometry, material);
+      building.position.z = -25; // Позиционирование на сцене
+      scene.add(building);
     }
+  });
 }
 
-// Отрисовка на канвасе
+// Проекция координат в плоскость
+function project(lat, lon) {
+  const scale = 100000; // Коэффициент масштабирования
+  return {
+    x: (lon - currentCoords.lon) * scale,
+    y: (lat - currentCoords.lat) * scale
+  };
+}
+
+// Анимация сцены
 function animate() {
-    requestAnimationFrame(animate);
-    updateDevicePosition(); // Обновление позиции при анимации
-    renderer.render(scene, camera); // Отображение сцены
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
 }
-
-// Инициализация процесса
 animate();
