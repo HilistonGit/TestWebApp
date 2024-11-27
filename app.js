@@ -6,7 +6,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // Камера и сцена
-camera.position.z = 5;
+camera.position.z = 10;  // Увеличил позицию камеры, чтобы было видно больше объектов
 
 // Простая анимация (поворот куба для проверки)
 function animate() {
@@ -75,7 +75,7 @@ function createBuilding(coordinates, userPosition) {
         }
     });
 
-    const extrudeSettings = { depth: 50, bevelEnabled: false };
+    const extrudeSettings = { depth: 10, bevelEnabled: false };  // Уменьшил глубину здания для теста
     const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
     const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
     const buildingMesh = new THREE.Mesh(geometry, material);
