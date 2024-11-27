@@ -31,6 +31,39 @@ function updateCoords() {
   }
 }
 
+// Рассчитываем расстояние между двумя координатами (Хаверсиновая формула)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // Радиус Земли в метрах
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // Расстояние в метрах
+}
+
+// Фильтруем здания по расстоянию и ограничиваем количество
+function filterBuildings(buildings) {
+  const maxBuildings = 20; // Максимальное количество зданий
+  const maxDistance = 100; // Максимальное расстояние в метрах
+
+  const filteredBuildings = buildings.filter((building) => {
+    if (!building.geometry || building.geometry.type !== "Polygon") return false;
+
+    const coords = building.geometry.coordinates[0];
+    const [lon, lat] = coords[0]; // Первая точка полигона
+    const distance = calculateDistance(currentCoords.lat, currentCoords.lon, lat, lon);
+    return distance <= maxDistance;
+  });
+
+  return filteredBuildings.slice(0, maxBuildings);
+}
+
 // Функция для загрузки данных зданий через Overpass API
 async function fetchBuildings() {
   const overpassApi = `https://overpass-api.de/api/interpreter`;
@@ -56,8 +89,9 @@ async function fetchBuildings() {
     // Преобразование данных OSM в формат GeoJSON
     const geojson = osmtogeojson(new DOMParser().parseFromString(osmData, "text/xml"));
 
-    // Добавление зданий на сцену
-    addBuildingsToScene(geojson.features);
+    // Фильтрация зданий и добавление на сцену
+    const filteredBuildings = filterBuildings(geojson.features);
+    addBuildingsToScene(filteredBuildings);
   } catch (err) {
     console.error("Ошибка загрузки данных OSM:", err);
   }
@@ -66,38 +100,36 @@ async function fetchBuildings() {
 // Функция для добавления зданий на сцену
 function addBuildingsToScene(buildings) {
   buildings.forEach((building) => {
-    if (building.geometry && building.geometry.type === "Polygon") {
-      const coords = building.geometry.coordinates[0];
-      const shape = new THREE.Shape();
-      coords.forEach(([lon, lat], i) => {
-        const { x, y } = convertCoordsToScene(lon, lat);
-        if (i === 0) {
-          shape.moveTo(x, y);
-        } else {
-          shape.lineTo(x, y);
-        }
-      });
+    const coords = building.geometry.coordinates[0];
+    const shape = new THREE.Shape();
+    coords.forEach(([lon, lat], i) => {
+      const { x, y } = convertCoordsToScene(lon, lat);
+      if (i === 0) {
+        shape.moveTo(x, y);
+      } else {
+        shape.lineTo(x, y);
+      }
+    });
 
-      // Создание 3D-объекта для здания
-      const extrudeSettings = { depth: 50, bevelEnabled: false };
-      const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-      const material = new THREE.MeshBasicMaterial({
-        color: 0x0000ff,
-        transparent: true,
-        opacity: 0.5,
-      });
+    // Создание 3D-объекта для здания
+    const extrudeSettings = { depth: 50, bevelEnabled: false };
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x0000ff,
+      transparent: true,
+      opacity: 0.5,
+    });
 
-      const buildingMesh = new THREE.Mesh(geometry, material);
-      scene.add(buildingMesh);
-    }
+    const buildingMesh = new THREE.Mesh(geometry, material);
+    scene.add(buildingMesh);
   });
 }
 
 // Функция для преобразования координат в сцену Three.js
 function convertCoordsToScene(lon, lat) {
-  // Пример простого преобразования (не учитывает масштаб)
-  const x = (lon - currentCoords.lon) * 10000;
-  const y = (lat - currentCoords.lat) * 10000;
+  const scale = 10000; // Пример масштаба
+  const x = (lon - currentCoords.lon) * scale;
+  const y = (lat - currentCoords.lat) * scale;
   return { x, y };
 }
 
@@ -110,8 +142,6 @@ renderer.setPixelRatio(window.devicePixelRatio);
 document.body.appendChild(renderer.domElement);
 
 camera.position.z = 100;
-
-renderer.setPixelRatio(0.5); // Уменьшаем разрешение рендера для повышения производительности
 
 // Анимация
 function animate() {
