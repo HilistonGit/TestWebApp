@@ -143,9 +143,9 @@ function renderBuildings(geojson) {
 
 // Вывод информации для дебага
 function updateDebugInfo() {
-  const debugInfo = document.getElementById("debug");
+  const debugInfo = document.getElementById("debugInfo");
   if (!debugInfo) {
-    console.warn("Элемент #debug не найден в DOM.");
+    console.warn("Элемент #debugInfo не найден в DOM.");
     return;
   }
   debugInfo.innerHTML = `
