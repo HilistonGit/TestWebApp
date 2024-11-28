@@ -40,7 +40,7 @@ function initSensors() {
 // Инициализация сцены Three.js
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer();
+const renderer = new THREE.WebGLRenderer({ alpha: true }); // Включить прозрачность
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 document.body.appendChild(renderer.domElement);
@@ -51,7 +51,7 @@ function createHouse(x, z) {
   const material = new THREE.MeshBasicMaterial({
     color: 0x00ff00, // Ярко-зелёный цвет
     transparent: true,
-    opacity: 0.8, // Лёгкая прозрачность для видимости фона
+    opacity: 0.8, // Лёгкая прозрачность
   });
 
   const house = new THREE.Mesh(geometry, material);
