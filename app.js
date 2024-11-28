@@ -1,15 +1,21 @@
-// Переменные для координат, ориентации и статуса GPS
-let currentCoords = null; // Координаты будут получены с GPS
-let orientation = { alpha: 0, beta: 0, gamma: 0 };
+// Подключение необходимых библиотек
+// osmtogeojson: https://tyrasd.github.io/osmtogeojson/osmtogeojson.js
+// three.js: https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js
+
+let currentCoords = null; // Координаты GPS
+let orientation = { alpha: 0, beta: 0, gamma: 0 }; // Данные с гироскопа
+let buildingsLoaded = false; // Флаг загрузки зданий
+let logMessages = []; // Сообщения для консоли
 
 // Инициализация камеры
 const video = document.getElementById("camera");
 navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
   .then((stream) => {
     video.srcObject = stream;
+    log("Камера подключена");
   })
   .catch((err) => {
-    console.error("Ошибка доступа к камере:", err);
+    log(`Ошибка доступа к камере: ${err.message}`);
   });
 
 // Инициализация GPS
@@ -21,18 +27,19 @@ function initGPS() {
           lat: position.coords.latitude,
           lon: position.coords.longitude,
         };
+        log(`GPS обновлен: ${currentCoords.lat.toFixed(6)}, ${currentCoords.lon.toFixed(6)}`);
         if (!buildingsLoaded) {
-          loadBuildings(); // Загружаем здания только после получения координат
+          loadBuildings();
           buildingsLoaded = true;
         }
       },
       (err) => {
-        console.error("Ошибка получения координат GPS:", err);
+        log(`Ошибка получения координат GPS: ${err.message}`);
       },
       { enableHighAccuracy: true }
     );
   } else {
-    console.warn("GPS недоступен.");
+    log("GPS недоступен.");
   }
 }
 
@@ -43,9 +50,10 @@ function initSensors() {
       orientation.alpha = event.alpha || 0;
       orientation.beta = event.beta || 0;
       orientation.gamma = event.gamma || 0;
+      updateDebugInfo();
     });
   } else {
-    console.warn("Сенсоры устройства недоступны.");
+    log("Сенсоры устройства недоступны.");
   }
 }
 
@@ -57,11 +65,38 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 document.body.appendChild(renderer.domElement);
 
-let buildingsLoaded = false; // Флаг для предотвращения многократной загрузки зданий
+// Отрисовка зданий с прозрачным градиентом
+function createBuilding(shape) {
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: 50, bevelEnabled: false });
+  
+  // Градиентный материал
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      color: { value: new THREE.Color(0x00ff00) }, // Зеленый цвет
+    },
+    vertexShader: `
+      varying float vHeight;
+      void main() {
+        vHeight = position.y / 50.0; // Нормализация высоты
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 color;
+      varying float vHeight;
+      void main() {
+        gl_FragColor = vec4(color, 1.0 - vHeight); // Градиент прозрачности
+      }
+    `,
+    transparent: true,
+  });
+
+  return new THREE.Mesh(geometry, material);
+}
 
 // Загрузка зданий с OSM
 function loadBuildings() {
-  if (!currentCoords) return; // Ожидаем получения координат GPS
+  if (!currentCoords) return; // Ждем координат GPS
 
   const bbox = [
     currentCoords.lon - 0.01,
@@ -80,7 +115,7 @@ function loadBuildings() {
       const geojson = osmtogeojson(new DOMParser().parseFromString(osmData, "text/xml"));
       renderBuildings(geojson);
     })
-    .catch((err) => console.error("Ошибка загрузки данных OSM:", err));
+    .catch((err) => log(`Ошибка загрузки данных OSM: ${err.message}`));
 }
 
 // Отрисовка зданий
@@ -89,7 +124,7 @@ function renderBuildings(geojson) {
 
   geojson.features
     .filter((feature) => feature.geometry.type === "Polygon")
-    .slice(0, 20) // Ограничение на 20 зданий
+    .slice(0, 50) // Ограничение на 50 зданий
     .forEach((feature) => {
       const coordinates = feature.geometry.coordinates[0];
       const shape = new THREE.Shape();
@@ -101,16 +136,26 @@ function renderBuildings(geojson) {
         else shape.lineTo(x, z);
       });
 
-      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 50, bevelEnabled: false });
-      const material = new THREE.MeshBasicMaterial({
-        color: 0x00ff00, // Ярко-зелёный цвет
-        transparent: true,
-        opacity: 0.5,
-      });
-
-      const building = new THREE.Mesh(geometry, material);
+      const building = createBuilding(shape);
       scene.add(building);
     });
+}
+
+// Вывод информации для дебага
+function updateDebugInfo() {
+  const debugInfo = document.getElementById("debug");
+  debugInfo.innerHTML = `
+    <p><b>GPS:</b> ${currentCoords ? `${currentCoords.lat.toFixed(6)}, ${currentCoords.lon.toFixed(6)}` : "Ожидание..."}</p>
+    <p><b>Ориентация:</b> α=${orientation.alpha.toFixed(2)}°, β=${orientation.beta.toFixed(2)}°, γ=${orientation.gamma.toFixed(2)}°</p>
+    <p><b>Консоль:</b><br>${logMessages.join("<br>")}</p>
+  `;
+}
+
+function log(message) {
+  console.log(message);
+  logMessages.push(message);
+  if (logMessages.length > 10) logMessages.shift(); // Ограничиваем количество сообщений
+  updateDebugInfo();
 }
 
 // Анимация
