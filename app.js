@@ -1,155 +1,131 @@
-// Инициализация камеры
-const video = document.createElement("video");
-video.id = "camera";
-video.style.position = "absolute";
-video.style.top = "0";
-video.style.left = "0";
-video.style.width = "100%";
-video.style.height = "100%";
-video.style.zIndex = "-1"; // Видео располагается за слоем Three.js
-document.body.appendChild(video);
+// Переменные для координат, ориентации и статуса GPS
+let currentCoords = null; // Координаты будут получены с GPS
+let orientation = { alpha: 0, beta: 0, gamma: 0 };
 
+// Инициализация камеры
+const video = document.getElementById("camera");
 navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
   .then((stream) => {
     video.srcObject = stream;
-    video.play();
   })
   .catch((err) => {
     console.error("Ошибка доступа к камере:", err);
   });
 
-// Остальной код для работы с Three.js и OSM
-let currentCoords = { lat: 45.039, lon: 39.129 }; // Пример начальных координат (Краснодар)
-
-// Функция для обновления координат с GPS
-function updateCoords() {
+// Инициализация GPS
+function initGPS() {
   if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition((position) => {
-      currentCoords.lat = position.coords.latitude;
-      currentCoords.lon = position.coords.longitude;
-    });
-  }
-}
-
-// Рассчитываем расстояние между двумя координатами (Хаверсиновая формула)
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Радиус Земли в метрах
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // Расстояние в метрах
-}
-
-// Фильтруем здания по расстоянию и ограничиваем количество
-function filterBuildings(buildings) {
-  const maxBuildings = 20; // Максимальное количество зданий
-  const maxDistance = 100; // Максимальное расстояние в метрах
-
-  const filteredBuildings = buildings.filter((building) => {
-    if (!building.geometry || building.geometry.type !== "Polygon") return false;
-
-    const coords = building.geometry.coordinates[0];
-    const [lon, lat] = coords[0]; // Первая точка полигона
-    const distance = calculateDistance(currentCoords.lat, currentCoords.lon, lat, lon);
-    return distance <= maxDistance;
-  });
-
-  return filteredBuildings.slice(0, maxBuildings);
-}
-
-// Функция для загрузки данных зданий через Overpass API
-async function fetchBuildings() {
-  const overpassApi = `https://overpass-api.de/api/interpreter`;
-  const query = `
-    [out:xml][timeout:25];
-    (
-      way["building"](${currentCoords.lat - 0.01},${currentCoords.lon - 0.01},${currentCoords.lat + 0.01},${currentCoords.lon + 0.01});
-      relation["building"](${currentCoords.lat - 0.01},${currentCoords.lon - 0.01},${currentCoords.lat + 0.01},${currentCoords.lon + 0.01});
+    navigator.geolocation.watchPosition(
+      (position) => {
+        currentCoords = {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+        };
+        if (!buildingsLoaded) {
+          loadBuildings(); // Загружаем здания только после получения координат
+          buildingsLoaded = true;
+        }
+      },
+      (err) => {
+        console.error("Ошибка получения координат GPS:", err);
+      },
+      { enableHighAccuracy: true }
     );
-    out body;
-    >;
-    out skel qt;
-  `;
-
-  try {
-    const response = await fetch(overpassApi, {
-      method: "POST",
-      body: query,
-    });
-    if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
-    const osmData = await response.text();
-
-    // Преобразование данных OSM в формат GeoJSON
-    const geojson = osmtogeojson(new DOMParser().parseFromString(osmData, "text/xml"));
-
-    // Фильтрация зданий и добавление на сцену
-    const filteredBuildings = filterBuildings(geojson.features);
-    addBuildingsToScene(filteredBuildings);
-  } catch (err) {
-    console.error("Ошибка загрузки данных OSM:", err);
+  } else {
+    console.warn("GPS недоступен.");
   }
 }
 
-// Функция для добавления зданий на сцену
-function addBuildingsToScene(buildings) {
-  buildings.forEach((building) => {
-    const coords = building.geometry.coordinates[0];
-    const shape = new THREE.Shape();
-    coords.forEach(([lon, lat], i) => {
-      const { x, y } = convertCoordsToScene(lon, lat);
-      if (i === 0) {
-        shape.moveTo(x, y);
-      } else {
-        shape.lineTo(x, y);
-      }
+// Инициализация сенсоров устройства
+function initSensors() {
+  if (window.DeviceOrientationEvent) {
+    window.addEventListener("deviceorientation", (event) => {
+      orientation.alpha = event.alpha || 0;
+      orientation.beta = event.beta || 0;
+      orientation.gamma = event.gamma || 0;
     });
-
-    // Создание 3D-объекта для здания
-    const extrudeSettings = { depth: 50, bevelEnabled: false };
-    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    const material = new THREE.MeshBasicMaterial({
-      color: 0x0000ff,
-      transparent: true,
-      opacity: 0.5,
-    });
-
-    const buildingMesh = new THREE.Mesh(geometry, material);
-    scene.add(buildingMesh);
-  });
-}
-
-// Функция для преобразования координат в сцену Three.js
-function convertCoordsToScene(lon, lat) {
-  const scale = 10000; // Пример масштаба
-  const x = (lon - currentCoords.lon) * scale;
-  const y = (lat - currentCoords.lat) * scale;
-  return { x, y };
+  } else {
+    console.warn("Сенсоры устройства недоступны.");
+  }
 }
 
 // Инициализация сцены Three.js
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer();
+const renderer = new THREE.WebGLRenderer({ alpha: true }); // Прозрачность включена
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 document.body.appendChild(renderer.domElement);
 
-camera.position.z = 100;
+let buildingsLoaded = false; // Флаг для предотвращения многократной загрузки зданий
+
+// Загрузка зданий с OSM
+function loadBuildings() {
+  if (!currentCoords) return; // Ожидаем получения координат GPS
+
+  const bbox = [
+    currentCoords.lon - 0.01,
+    currentCoords.lat - 0.01,
+    currentCoords.lon + 0.01,
+    currentCoords.lat + 0.01,
+  ].join(",");
+  const url = `https://www.openstreetmap.org/api/0.6/map?bbox=${bbox}`;
+
+  fetch(url)
+    .then((response) => {
+      if (!response.ok) throw new Error(`Ошибка загрузки OSM: ${response.status}`);
+      return response.text();
+    })
+    .then((osmData) => {
+      const geojson = osmtogeojson(new DOMParser().parseFromString(osmData, "text/xml"));
+      renderBuildings(geojson);
+    })
+    .catch((err) => console.error("Ошибка загрузки данных OSM:", err));
+}
+
+// Отрисовка зданий
+function renderBuildings(geojson) {
+  scene.clear(); // Очистить сцену перед добавлением новых зданий
+
+  geojson.features
+    .filter((feature) => feature.geometry.type === "Polygon")
+    .slice(0, 20) // Ограничение на 20 зданий
+    .forEach((feature) => {
+      const coordinates = feature.geometry.coordinates[0];
+      const shape = new THREE.Shape();
+
+      coordinates.forEach(([lon, lat], index) => {
+        const x = (lon - currentCoords.lon) * 10000; // Преобразование координат в метры
+        const z = (lat - currentCoords.lat) * 10000;
+        if (index === 0) shape.moveTo(x, z);
+        else shape.lineTo(x, z);
+      });
+
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 50, bevelEnabled: false });
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x00ff00, // Ярко-зелёный цвет
+        transparent: true,
+        opacity: 0.5,
+      });
+
+      const building = new THREE.Mesh(geometry, material);
+      scene.add(building);
+    });
+}
 
 // Анимация
 function animate() {
   requestAnimationFrame(animate);
+
+  // Обновление ориентации камеры
+  camera.rotation.x = THREE.MathUtils.degToRad(orientation.beta);
+  camera.rotation.y = THREE.MathUtils.degToRad(orientation.alpha);
+  camera.rotation.z = THREE.MathUtils.degToRad(orientation.gamma);
+
   renderer.render(scene, camera);
 }
 animate();
 
-// Инициализация
-updateCoords();
-fetchBuildings();
+// Инициализация модулей
+initGPS();
+initSensors();
