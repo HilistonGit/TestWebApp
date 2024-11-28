@@ -49,9 +49,9 @@ document.body.appendChild(renderer.domElement);
 function createHouse(x, z) {
   const geometry = new THREE.BoxGeometry(10, 50, 10); // Ширина: 10м, Высота: 50м
   const material = new THREE.MeshBasicMaterial({
-    color: 0x0000ff,
+    color: 0x00ff00, // Ярко-зелёный цвет
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.8, // Лёгкая прозрачность для видимости фона
   });
 
   const house = new THREE.Mesh(geometry, material);
