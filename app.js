@@ -144,6 +144,10 @@ function renderBuildings(geojson) {
 // Вывод информации для дебага
 function updateDebugInfo() {
   const debugInfo = document.getElementById("debug");
+  if (!debugInfo) {
+    console.warn("Элемент #debug не найден в DOM.");
+    return;
+  }
   debugInfo.innerHTML = `
     <p><b>GPS:</b> ${currentCoords ? `${currentCoords.lat.toFixed(6)}, ${currentCoords.lon.toFixed(6)}` : "Ожидание..."}</p>
     <p><b>Ориентация:</b> α=${orientation.alpha.toFixed(2)}°, β=${orientation.beta.toFixed(2)}°, γ=${orientation.gamma.toFixed(2)}°</p>
@@ -169,8 +173,10 @@ function animate() {
 
   renderer.render(scene, camera);
 }
-animate();
 
-// Инициализация модулей
-initGPS();
-initSensors();
+// Запуск приложения после загрузки DOM
+document.addEventListener("DOMContentLoaded", () => {
+  initGPS();     // Инициализация GPS
+  initSensors(); // Инициализация сенсоров
+  animate();     // Запуск рендера и обновления AR-объектов
+});
